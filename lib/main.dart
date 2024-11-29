@@ -45,10 +45,6 @@ class _MyHomePageState extends State<MyHomePage> {
   static const List<Widget> _widgetOptions = <Widget>[
     ColorMixer(),
     PaletteGenerator(),
-    Text(
-      'Art Showcase Screen',
-      style: TextStyle(fontSize: 30, fontWeight: FontWeight.bold),
-    ),
   ];
 
   void _onItemTapped(int index) {
@@ -76,10 +72,6 @@ class _MyHomePageState extends State<MyHomePage> {
           BottomNavigationBarItem(
             icon: Icon(Icons.palette),
             label: 'Palette Generator',
-          ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.art_track),
-            label: 'Art Showcase',
           ),
         ],
         currentIndex: _selectedIndex,
