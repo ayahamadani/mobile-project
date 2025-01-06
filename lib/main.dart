@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math';
-// Import to add a save to clipboard function
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import 'package:flutter/services.dart';
 
 void main() {
@@ -26,11 +27,8 @@ class MyApp extends StatelessWidget {
   }
 }
 
-
-
 class MyHomePage extends StatefulWidget {
   const MyHomePage({super.key, required this.title});
-
   final String title;
 
   @override
@@ -40,11 +38,10 @@ class MyHomePage extends StatefulWidget {
 class _MyHomePageState extends State<MyHomePage> {
   int _selectedIndex = 0;
 
-  // Define the widget options for each tab
-  // Idealy, there will be three pages
   static const List<Widget> _widgetOptions = <Widget>[
     ColorMixer(),
     PaletteGenerator(),
+    DataTablesPage(),
   ];
 
   void _onItemTapped(int index) {
@@ -73,12 +70,65 @@ class _MyHomePageState extends State<MyHomePage> {
             icon: Icon(Icons.palette),
             label: 'Palette Generator',
           ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.table_chart),
+            label: 'colors',
+          ),
         ],
         currentIndex: _selectedIndex,
         selectedItemColor: Theme.of(context).colorScheme.primary,
         onTap: _onItemTapped,
       ),
     );
+  }
+}
+
+class ApiService {
+  final String baseUrl;
+
+  ApiService({required this.baseUrl});
+
+  Future<void> saveLikedColor(String hexColor) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/save_liked_color.php'),
+      body: json.encode({'hexColor': hexColor}),
+      headers: {'Content-Type': 'application/json'},
+    );
+
+    if (response.statusCode != 200) {
+      throw Exception('Failed to save color');
+    }
+  }
+
+  Future<List<String>> getLikedColors() async {
+    final response = await http.get(Uri.parse('$baseUrl/get_liked_colors.php'));
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return List<String>.from(
+          data.map((color) => color['hexColor'] as String));
+    } else {
+      throw Exception('Failed to load liked colors');
+    }
+  }
+
+  Future<List<List<String>>> getPalettes() async {
+    final response = await http.get(Uri.parse('$baseUrl/get_palettes.php'));
+
+    if (response.statusCode == 200) {
+      final List<dynamic> data = json.decode(response.body);
+      return data.map<List<String>>((palette) {
+        return [
+          palette['color1'] as String,
+          palette['color2'] as String,
+          palette['color3'] as String,
+          palette['color4'] as String,
+          palette['color5'] as String,
+        ];
+      }).toList();
+    } else {
+      throw Exception('Failed to load palettes');
+    }
   }
 }
 
@@ -90,86 +140,73 @@ class PaletteGenerator extends StatefulWidget {
 }
 
 class _PaletteGeneratorState extends State<PaletteGenerator> {
-  List<Color> palette = [];
+  List<String> generatedPalette = [];
+  final ApiService apiService = ApiService(
+      baseUrl: 'http://localhost/mobile-application-project/backend');  
 
-  @override
-  void initState() {
-    super.initState();
-    generatePalette();
+  void generateNewPalette() async {
+    try {
+      final fetchedPalettes = await apiService.getPalettes();
+      if (fetchedPalettes.isNotEmpty) {
+        setState(() {
+          generatedPalette =
+              fetchedPalettes[Random().nextInt(fetchedPalettes.length)];
+        });
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No palettes available.')),
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to fetch palettes.')),
+      );
+    }
   }
 
-  // Function to generate random colors for the palette
-  void generatePalette() {
-    final random = Random();
-    setState(() {
-      palette = List.generate(5, (_) {
-        return Color.fromARGB(
-          255, // Always fully opaque
-          random.nextInt(256),
-          random.nextInt(256),
-          random.nextInt(256),
-        );
-      });
+  void copyToClipboard(String colorHex) {
+    Clipboard.setData(ClipboardData(text: colorHex)).then((_) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Copied to clipboard: $colorHex')),
+      );
     });
   }
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(top: 16.0), // Add top padding
+      padding: const EdgeInsets.only(top: 16.0),
       child: Column(
         children: [
-          // Display the palette colors
-          Expanded(
-            child: ListView.builder(
-              itemCount: palette.length,
-              itemBuilder: (context, index) {
-                final color = palette[index];
-                final hexCode = '#${color.value.toRadixString(16).padLeft(8, '0').substring(2)}';
-                return ListTile(
-                  leading: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: color,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+          const SizedBox(height: 16),
+          if (generatedPalette.isNotEmpty) ...[
+            Text('Generated Palette:', style: TextStyle(fontSize: 18)),
+            const SizedBox(height: 8),
+            ...generatedPalette.map((color) {
+              return Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 30,
+                    height: 30,
+                    color: Color(int.parse('0xFF${color.replaceAll('#', '')}')),
                   ),
-                  title: Text(
-                    hexCode,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  const SizedBox(width: 8),
+                  Text(color, style: const TextStyle(fontSize: 16)),
+                  IconButton(
+                    icon: const Icon(Icons.copy),
+                    onPressed: () => copyToClipboard(color),
                   ),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.copy, color: Colors.blue),
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: hexCode));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Copied $hexCode to clipboard!'),
-                          duration: const Duration(seconds: 2),
-                        ),
-                      );
-                    },
-                  ),
-                );
-              },
-            ),
-          ),
-
-          // Button to generate a new palette
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: ElevatedButton.icon(
-              onPressed: generatePalette,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Generate New Palette'),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-              ),
-            ),
+                ],
+              );
+            }).toList(),
+          ],
+          ElevatedButton(
+            onPressed: generateNewPalette,
+            child: const Text('Generate palette'),
           ),
         ],
-      )
+      ),
     );
   }
 }
@@ -182,30 +219,52 @@ class ColorMixer extends StatefulWidget {
 }
 
 class _ColorMixerState extends State<ColorMixer> {
-  // List to store the liked colors
-  List<String> likedColors = []; 
+  List<String> likedColors = [];
+  final ApiService apiService = ApiService(
+      baseUrl: 'http://localhost/mobile-application-project/backend');
 
-  // initializing the color vars
   double red = 0;
   double green = 0;
   double blue = 0;
 
-  // Function to convert RGB to HEX since I want to save the HEX values from the RGB sliders
+  @override
+  void initState() {
+    super.initState();
+    fetchLikedColors();
+  }
+
+  void fetchLikedColors() async {
+    try {
+      final fetchedColors = await apiService.getLikedColors();
+      setState(() {
+        likedColors = fetchedColors;
+      });
+    } catch (e) {
+      print(e);
+    }
+  }
+
   String rgbToHex(double red, double green, double blue) {
     String redHex = red.toInt().toRadixString(16).padLeft(2, '0');
     String greenHex = green.toInt().toRadixString(16).padLeft(2, '0');
     String blueHex = blue.toInt().toRadixString(16).padLeft(2, '0');
-    return redHex + greenHex + blueHex; // Return the HEX string
+    return redHex + greenHex + blueHex;
   }
 
-  // Function to like the current color
-  void likeColor() {
+  void likeColor() async {
     String hex = rgbToHex(red, green, blue);
-    // Check is a color has been previously liked to not get duplicates
     if (!likedColors.contains(hex)) {
+      await apiService.saveLikedColor(hex);
       setState(() {
         likedColors.add(hex);
       });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Liked color: #$hex'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      fetchLikedColors();
     }
   }
 
@@ -217,18 +276,16 @@ class _ColorMixerState extends State<ColorMixer> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Color Display
           Container(
             height: 150,
             width: double.infinity,
             decoration: BoxDecoration(
-                color:
-                Color.fromRGBO(red.toInt(), green.toInt(), blue.toInt(), 1),
-                borderRadius: BorderRadius.circular(15)),
+              color:
+                  Color.fromRGBO(red.toInt(), green.toInt(), blue.toInt(), 1),
+              borderRadius: BorderRadius.circular(15),
+            ),
           ),
           const SizedBox(height: 16),
-
-          // Red Slider
           Text('Red: ${red.toInt()}'),
           Slider(
             value: red,
@@ -241,8 +298,6 @@ class _ColorMixerState extends State<ColorMixer> {
               });
             },
           ),
-
-          // Green Slider
           Text('Green: ${green.toInt()}'),
           Slider(
             value: green,
@@ -255,8 +310,6 @@ class _ColorMixerState extends State<ColorMixer> {
               });
             },
           ),
-
-          // Blue Slider
           Text('Blue: ${blue.toInt()}'),
           Slider(
             value: blue,
@@ -269,33 +322,23 @@ class _ColorMixerState extends State<ColorMixer> {
               });
             },
           ),
-
           const SizedBox(height: 16),
-
-          // Display HEX Values
           Text(
             'HEX: #$hexColor',
             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 16),
-
-          // Like button container to add styles inapplicable to the button itself
-          Container(
-            margin: const EdgeInsets.only(bottom: 16),
-            child: ElevatedButton.icon(
-              onPressed: likeColor,
-              icon: const Icon(Icons.favorite, color: Colors.red),
-              label: const Text('Like Color'),
-            ),
+          ElevatedButton.icon(
+            onPressed: likeColor,
+            icon: const Icon(Icons.favorite, color: Colors.red),
+            label: const Text('Like Color'),
           ),
-
           const Text(
             'Liked Colors:',
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
-
-         Expanded(
-          child: ListView.builder(
+          Expanded(
+            child: ListView.builder(
               itemCount: likedColors.length,
               itemBuilder: (context, index) {
                 final colorHex = likedColors[index];
@@ -304,7 +347,8 @@ class _ColorMixerState extends State<ColorMixer> {
                     width: 24,
                     height: 24,
                     decoration: BoxDecoration(
-                      color: Color(int.parse('0xFF$colorHex')),
+                      color: Color(
+                          int.parse('0xFF${colorHex.replaceAll('#', '')}')),
                       borderRadius: BorderRadius.circular(4),
                     ),
                   ),
@@ -312,18 +356,141 @@ class _ColorMixerState extends State<ColorMixer> {
                     '#$colorHex',
                     style: const TextStyle(fontSize: 16),
                   ),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.copy, color: Colors.blue),
-                    onPressed: () {
-                      Clipboard.setData(ClipboardData(text: '#$colorHex'));
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Copied #$colorHex to clipboard!'),
-                          duration: const Duration(seconds: 2),
-                        ),
-                      );
-                    },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class DataTablesPage extends StatefulWidget {
+  const DataTablesPage({super.key});
+
+  @override
+  State<DataTablesPage> createState() => _DataTablesPageState();
+}
+
+class _DataTablesPageState extends State<DataTablesPage> {
+  List<dynamic> likedColorsData = [];
+  List<dynamic> palettesData = [];
+  final ApiService apiService = ApiService(
+      baseUrl: 'http://localhost/mobile-application-project/backend');
+
+  @override
+  void initState() {
+    super.initState();
+    fetchDataTables();
+  }
+
+  void fetchDataTables() async {
+    try {
+      // Fetch liked colors
+      final colorsResponse = await http
+          .get(Uri.parse('${apiService.baseUrl}/get_liked_colors.php'));
+      if (colorsResponse.statusCode == 200) {
+        setState(() {
+          likedColorsData = json.decode(colorsResponse.body);
+        });
+      } else {
+        throw Exception('Failed to load liked colors');
+      }
+
+      // Fetch palettes
+      final palettesResponse = await http
+          .get(Uri.parse('${apiService.baseUrl}/display_palettes.php'));
+      if (palettesResponse.statusCode == 200) {
+        setState(() {
+          palettesData = json.decode(palettesResponse.body);
+        });
+      } else {
+        throw Exception('Failed to load palettes');
+      }
+    } catch (e) {
+      print(e);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Failed to fetch data tables.')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        children: [
+          Text('Available color:',
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          // Display Liked Colors
+          Text('Liked Colors',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Expanded(
+            flex: 1,
+            child: ListView.builder(
+              itemCount: likedColorsData.length,
+              itemBuilder: (context, index) {
+                final color = likedColorsData[index]['hexColor'] ?? 'No Color';
+                return ListTile(
+                  leading: Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color:
+                          Color(int.parse('0xFF${color.replaceAll('#', '')}')),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
                   ),
+                  title: Text('#${color}'),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 16),
+          // Display Palettes
+          Text('Available Palettes:',
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          Expanded(
+            flex: 1,
+            child: ListView.builder(
+              itemCount: palettesData.length,
+              itemBuilder: (context, index) {
+                final palette = palettesData[index];
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Palette ${index + 1}',
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.bold)),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (var i = 1; i <= 5; i++) // through 5 colors
+                          Row(
+                            children: [
+                              Container(
+                                width: 24,
+                                height: 24,
+                                decoration: BoxDecoration(
+                                  color: Color(int.parse(
+                                      '0xFF${palette['color$i']?.replaceAll('#', '')}')),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(palette['color$i'] ?? 'No Color',
+                                  style: TextStyle(fontSize: 14)),
+                            ],
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 16), // Space between palettes
+                  ],
                 );
               },
             ),
